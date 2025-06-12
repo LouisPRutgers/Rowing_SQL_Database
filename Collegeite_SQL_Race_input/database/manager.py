@@ -1029,3 +1029,136 @@ class DatabaseManager:
         usage['results'] = cursor.fetchone()[0]
         
         return usage
+
+    def get_schools_participating_at_date(self, gender: str, weight: str, target_date: str) -> List[str]:
+        """
+        Get list of school CRR names that were participating in D1 for the given team category on a specific date.
+        
+        Args:
+            gender: 'M' or 'W'
+            weight: 'LW', 'HW', or 'OW'
+            target_date: Date string in YYYY-MM-DD format
+            
+        Returns:
+            List of CRR names (school identifiers) that were active on that date
+        """
+        cursor = self.conn.cursor()
+        
+        # Extract just the date part if datetime is provided
+        date_only = target_date.split(' ')[0] if ' ' in target_date else target_date
+        
+        # Query for schools that had D1 participation covering the target date
+        weight_column_map = {
+            ('W', 'OW'): 'openweight_women',
+            ('W', 'LW'): 'lightweight_women', 
+            ('M', 'HW'): 'heavyweight_men',
+            ('M', 'LW'): 'lightweight_men'
+        }
+        
+        weight_column = weight_column_map.get((gender, weight))
+        if not weight_column:
+            return []
+        
+        cursor.execute(f"""
+            SELECT DISTINCT s.crr_name
+            FROM schools s
+            JOIN school_participations sp ON s.school_id = sp.school_id
+            WHERE sp.{weight_column} = 1
+            AND sp.start_date <= ?
+            AND (sp.end_date IS NULL OR sp.end_date > ?)
+            ORDER BY s.crr_name
+        """, (date_only, date_only))
+        
+        return [row[0] for row in cursor.fetchall()]
+
+    def get_schools_participating_in_season(self, gender: str, weight: str, season_display: str) -> List[str]:
+        """
+        Get list of school CRR names that were participating in D1 for the given team category in a specific season.
+        
+        Args:
+            gender: 'M' or 'W'
+            weight: 'LW', 'HW', or 'OW'
+            season_display: Season string like "2024-2025" or "2025 - current"
+            
+        Returns:
+            List of CRR names (school identifiers) that were active in that season
+        """
+        # Parse season display to get the start year
+        if " - current" in season_display:
+            season_year = season_display.split(' - current')[0]
+        else:
+            season_year = season_display.split('-')[0]
+        
+        # Use the start of the academic year as the target date
+        target_date = f"{season_year}-09-01"
+        
+        return self.get_schools_participating_at_date(gender, weight, target_date)
+
+    def get_teams_for_category_at_date(self, gender: str, weight: str, target_date: str) -> List[Tuple[int, str, str]]:
+        """
+        Enhanced version of get_teams_for_category that considers D1 participation at a specific date.
+        
+        Args:
+            gender: 'M' or 'W'
+            weight: 'LW', 'HW', or 'OW'
+            target_date: Date string in YYYY-MM-DD format
+            
+        Returns:
+            List of tuples (team_id, crr_name, current_conference) for teams active on that date
+        """
+        cursor = self.conn.cursor()
+        
+        # Extract just the date part if datetime is provided
+        date_only = target_date.split(' ')[0] if ' ' in target_date else target_date
+        
+        # Map team category to participation column
+        weight_column_map = {
+            ('W', 'OW'): 'openweight_women',
+            ('W', 'LW'): 'lightweight_women', 
+            ('M', 'HW'): 'heavyweight_men',
+            ('M', 'LW'): 'lightweight_men'
+        }
+        
+        weight_column = weight_column_map.get((gender, weight))
+        if not weight_column:
+            return []
+        
+        cursor.execute(f"""
+            SELECT t.team_id, s.crr_name,
+                COALESCE(ca.conference, 'Unknown') as current_conference
+            FROM teams t
+            JOIN schools s ON t.school_id = s.school_id
+            JOIN school_participations sp ON s.school_id = sp.school_id
+            LEFT JOIN conference_affiliations ca ON t.team_id = ca.team_id 
+                AND ca.start_date <= ? AND (ca.end_date IS NULL OR ca.end_date > ?)
+            WHERE t.gender = ? AND t.weight = ?
+            AND sp.{weight_column} = 1
+            AND sp.start_date <= ?
+            AND (sp.end_date IS NULL OR sp.end_date > ?)
+            ORDER BY s.crr_name
+        """, (date_only, date_only, gender, weight, date_only, date_only))
+        
+        return cursor.fetchall()
+
+    def get_teams_for_category_in_season(self, gender: str, weight: str, season_display: str) -> List[Tuple[int, str, str]]:
+        """
+        Get teams for a category during a specific season, considering D1 participation.
+        
+        Args:
+            gender: 'M' or 'W'
+            weight: 'LW', 'HW', or 'OW'
+            season_display: Season string like "2024-2025" or "2025 - current"
+            
+        Returns:
+            List of tuples (team_id, crr_name, current_conference) for teams active in that season
+        """
+        # Parse season display to get the start year
+        if " - current" in season_display:
+            season_year = season_display.split(' - current')[0]
+        else:
+            season_year = season_display.split('-')[0]
+        
+        # Use the start of the academic year as the target date
+        target_date = f"{season_year}-09-01"
+        
+        return self.get_teams_for_category_at_date(gender, weight, target_date)

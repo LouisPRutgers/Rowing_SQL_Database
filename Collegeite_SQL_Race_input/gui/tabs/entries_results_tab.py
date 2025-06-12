@@ -305,9 +305,9 @@ class EntriesResultsTab:
         self.event_var.set("")
         self.selected_event_label.config(text="No event selected", fg='red')
         self._clear_form()
-    
+        
     def _on_event_combo_select(self, event):
-        """Handle event selection."""
+        """Handle event selection with temporal school filtering."""
         selected_text = self.event_var.get()
         if selected_text in self.event_id_map:
             event_id = self.event_id_map[selected_text]
@@ -324,9 +324,17 @@ class EntriesResultsTab:
                 self.app.set_current_event(event_id, event_boat_class)
                 self.current_event_boat_class = event_boat_class
                 
-                # Update school choices
-                teams = self.db.get_teams_for_category(gender, weight)
-                self.current_school_choices = [school_name for team_id, school_name, conference in teams]
+                # *** ENHANCED: Get event date and use temporal school filtering ***
+                event_date = self.db.get_event_date(event_id)
+                print(f"🔍 Event date for temporal filtering: {event_date}")
+                
+                # Get schools that were participating in D1 on the event date
+                participating_schools = self.db.get_schools_participating_at_date(gender, weight, event_date)
+                self.current_school_choices = participating_schools
+                self._update_existing_autocomplete_widgets()
+                
+                print(f"📚 Available schools for {gender} {weight} on {event_date}: {len(participating_schools)} schools")
+                print(f"   Sample schools: {participating_schools[:5]}..." if participating_schools else "   No schools found")
                 
                 # Update selected event display
                 self.selected_event_label.config(
@@ -345,9 +353,9 @@ class EntriesResultsTab:
                 # Focus on first school entry
                 if self.entry_rows:
                     self.entry_rows[0][2].focus_set()
-    
+
     def on_event_changed(self, event_id: int, event_boat_class: str = None):
-        """Handle event change notification from main app."""
+        """Handle event change notification from main app with temporal filtering."""
         self.app.current_event_id = event_id
         if event_boat_class:
             self.current_event_boat_class = event_boat_class
@@ -383,9 +391,13 @@ class EntriesResultsTab:
             # Update the current event info
             self.current_event_boat_class = event_boat_class
             
-            # Update school choices
-            teams = self.db.get_teams_for_category(gender, weight)
-            self.current_school_choices = [school_name for team_id, school_name, conference in teams]
+            # *** ENHANCED: Use temporal school filtering ***
+            event_date = self.db.get_event_date(event_id)
+            participating_schools = self.db.get_schools_participating_at_date(gender, weight, event_date)
+            self.current_school_choices = participating_schools
+            self._update_existing_autocomplete_widgets()
+            
+            print(f"🔄 Event changed: {len(participating_schools)} schools available for {gender} {weight} on {event_date}")
             
             # Update selected event display
             self.selected_event_label.config(
@@ -404,6 +416,7 @@ class EntriesResultsTab:
                 # Focus on first school entry
                 if self.entry_rows:
                     self.entry_rows[0][2].focus_set()
+
 
     def _load_existing_entries(self):
         """Load existing entries for the current event."""
@@ -451,8 +464,26 @@ class EntriesResultsTab:
         self._update_positions()
         self._update_preview()  
 
-    def _add_entry_row(self, school="", time="", notes=""):  # Added notes parameter
-        """Add a new entry row to the form."""
+
+    def _update_existing_autocomplete_widgets(self):
+        """Update autocomplete choices in existing school entry widgets."""
+        if not hasattr(self, 'entry_rows'):
+            return
+        
+        # Update all AutoCompleteEntry widgets with new school choices
+        updated_count = 0
+        for row_data in self.entry_rows:
+            if len(row_data) >= 3:  # Make sure we have school_entry
+                school_entry = row_data[2]  # school_entry is at index 2
+                if hasattr(school_entry, 'update_choices'):
+                    school_entry.update_choices(self.current_school_choices)
+                    updated_count += 1
+        
+        if updated_count > 0:
+            print(f"✅ Updated {updated_count} autocomplete widgets with new school choices")
+
+    def _add_entry_row(self, school="", time="", notes=""):
+        """Add a new entry row to the form with updated autocomplete choices."""
         row_num = len(self.entry_rows) + 1
         row_frame = tk.Frame(self.scroll_frame)
         row_frame.pack(fill='x', pady=1, padx=2)
@@ -465,6 +496,7 @@ class EntriesResultsTab:
                                 anchor='center', relief='flat', bg='#f8f8f8')
         position_label.pack(side='left')
         
+        # *** ENHANCED: Use current school choices (which are now temporally filtered) ***
         school_entry = AutoCompleteEntry(row_frame, self.current_school_choices, width=self.FIELD_SCHOOL_WIDTH)
         school_entry.pack(side='left')
         school_entry.insert(0, school)
@@ -477,10 +509,19 @@ class EntriesResultsTab:
         time_entry.pack(side='left')
         time_entry.insert(0, time)
         
-        # NEW: Add notes entry field
+        # Notes entry field
         notes_entry = tk.Entry(row_frame, font=FONT_ENTRY, width=self.FIELD_NOTES_WIDTH)
         notes_entry.pack(side='left')
         notes_entry.insert(0, notes)
+        
+        # *** ENHANCED: Update autocomplete choices when schools change ***
+        def on_school_choices_update():
+            """Update autocomplete choices if they've changed."""
+            if hasattr(school_entry, 'update_choices'):
+                school_entry.update_choices(self.current_school_choices)
+        
+        # Store the update function for potential future use
+        school_entry._update_choices_callback = on_school_choices_update
         
         # Bind events for automatic updates - INCLUDING notes_entry
         for widget in [lane_entry, school_entry, boat_class_entry, notes_entry]:
@@ -496,7 +537,7 @@ class EntriesResultsTab:
         time_entry.bind('<KeyRelease>', self._on_field_change)
         time_entry.bind('<FocusOut>', time_entry_focus_out_handler, '+')  # '+' means ADD this binding, don't replace
         
-        # UPDATE: Now includes notes_entry in the tuple
+        # Store all components including notes_entry
         self.entry_rows.append((lane_entry, position_label, school_entry, boat_class_entry, time_entry, notes_entry, row_frame))
         
         # Update canvas scroll region
@@ -504,7 +545,9 @@ class EntriesResultsTab:
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         
         return self.entry_rows[-1]
-   
+
+
+
     def _on_field_change(self, event=None):
         """Handle field changes to update positions and preview."""
         self._update_positions()
@@ -599,8 +642,10 @@ class EntriesResultsTab:
         
         auto_size_treeview_columns(self.results_tree, display_data, column_headers, min_widths)
     
+
+
     def _submit_results(self):
-        """Submit all entries and results to the database."""
+        """Submit all entries and results to the database with enhanced validation."""
         if not self.app.current_event_id:
             messagebox.showerror("Error", "Please select an event first")
             return
@@ -612,14 +657,18 @@ class EntriesResultsTab:
             time_text = time_entry.get().strip()
             lane = lane_entry.get().strip()
             boat_class = boat_class_entry.get().strip()
-            notes = notes_entry.get().strip()  # NEW: Get notes
+            notes = notes_entry.get().strip()
             
             if not school:
                 continue
             
-            # Validate school
+            # *** ENHANCED: Validate school against temporally filtered choices ***
             if school not in self.current_school_choices:
-                messagebox.showerror("Error", f"'{school}' is not valid for this event")
+                # Get event date for better error message
+                event_date = self.db.get_event_date(self.app.current_event_id)
+                messagebox.showerror("Invalid School", 
+                    f"'{school}' was not participating in D1 for this team category on {event_date}.\n\n"
+                    f"Only schools with active D1 participation on the event date are valid entries.")
                 return
             
             entry_data = {
@@ -628,7 +677,7 @@ class EntriesResultsTab:
                 'boat_class': boat_class,
                 'lane': int(lane) if lane else None,
                 'time_text': time_text,
-                'notes': notes  # NEW: Include notes
+                'notes': notes
             }
             
             if time_text:
@@ -675,11 +724,12 @@ class EntriesResultsTab:
             
             # Add entries and results
             for entry_data in entries:
-                # Get team_id
+                # *** ENHANCED: Get team_id using temporally filtered teams ***
                 cursor.execute("SELECT gender, weight FROM events WHERE event_id = ?", (self.app.current_event_id,))
                 gender, weight = cursor.fetchone()
                 
-                teams = self.db.get_teams_for_category(gender, weight)
+                event_date = self.db.get_event_date(self.app.current_event_id)
+                teams = self.db.get_teams_for_category_at_date(gender, weight, event_date)
                 team_id = None
                 for tid, school_name, conference in teams:
                     if school_name == entry_data['school']:
@@ -687,14 +737,14 @@ class EntriesResultsTab:
                         break
                 
                 if not team_id:
-                    raise Exception(f"Team not found for {entry_data['school']}")
+                    raise Exception(f"Team not found for {entry_data['school']} on {event_date}")
                 
                 # Add entry WITH NOTES
                 entry_id = self.db.add_entry(
                     self.app.current_event_id, 
                     team_id, 
                     entry_data['boat_class'],
-                    entry_data['notes']  # NEW: Pass notes to add_entry
+                    entry_data['notes']
                 )
                 
                 # Add result if time provided
@@ -719,7 +769,7 @@ class EntriesResultsTab:
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to submit: {str(e)}")
-    
+
     def _clear_form(self):
         """Clear the entry form."""
         for lane_entry, position_label, school_entry, boat_class_entry, time_entry, notes_entry, row_frame in self.entry_rows:

@@ -103,13 +103,26 @@ class ConferenceTab:
             self._create_season_interface()
     
     def _load_available_schools(self):
-        """Load available schools for the selected team category."""
+        """Load available schools for the selected team category and current season."""
         if not self.selected_team_category:
             return
         
-        gender, weight = self.selected_team_category
-        teams = self.db.get_teams_for_category(gender, weight)
-        self.available_schools = [school_name for _, school_name, _ in teams]
+        # *** ENHANCED: Use temporal filtering if we have a current season ***
+        if self.current_season:
+            gender, weight = self.selected_team_category
+            participating_schools = self.db.get_schools_participating_in_season(gender, weight, self.current_season)
+            self.available_schools = participating_schools
+            
+            print(f"🏫 Loaded {len(participating_schools)} schools for {gender} {weight} in season {self.current_season}")
+            print(f"   Sample schools: {participating_schools[:5]}..." if participating_schools else "   No schools found")
+        else:
+            # Fallback to all teams if no season selected yet
+            gender, weight = self.selected_team_category
+            teams = self.db.get_teams_for_category(gender, weight)
+            self.available_schools = [school_name for _, school_name, _ in teams]
+            
+            print(f"📚 Fallback: Loaded {len(self.available_schools)} schools (all teams for {gender} {weight})")
+
     
     def _create_season_interface(self):
         """Create the season tabs and conference table interface."""
@@ -198,16 +211,41 @@ class ConferenceTab:
             self._load_season_data()
     
     def _on_season_tab_change(self, event):
-        """Handle season tab change."""
+        """Handle season tab change with school list update."""
         selected_tab = self.season_notebook.select()
         if selected_tab:
             tab_index = self.season_notebook.index(selected_tab)
             if 0 <= tab_index < len(self.seasons):
+                old_season = self.current_season
                 self.current_season = self.seasons[tab_index]
+                
+                # *** ENHANCED: Update available schools when season changes ***
+                if old_season != self.current_season:
+                    print(f"🔄 Season changed from '{old_season}' to '{self.current_season}' - updating school choices")
+                    self._load_available_schools()
+                    self._update_existing_autocomplete_widgets()
+                
                 self._load_season_data()
                 # Clear season selection when switching tabs normally
                 self._clear_season_selection()
     
+    def _update_existing_autocomplete_widgets(self):
+        """Update autocomplete choices in existing school entry widgets."""
+        if not hasattr(self, 'school_cells'):
+            return
+        
+        # Update all AutoCompleteEntry widgets with new school choices
+        updated_count = 0
+        for (row, col), cell_data in self.school_cells.items():
+            widget = cell_data.get('widget')
+            if widget and hasattr(widget, 'update_choices'):
+                widget.update_choices(self.available_schools)
+                updated_count += 1
+        
+        if updated_count > 0:
+            print(f"✅ Updated {updated_count} autocomplete widgets with new school choices")
+
+
     def _on_season_tab_right_click(self, event):
         """Handle right-click on season tab to select it for deletion."""
         # Identify which tab was clicked
@@ -252,9 +290,12 @@ class ConferenceTab:
         pass
     
     def _load_season_data(self):
-        """Load conference data for the current season."""
+        """Load conference data for the current season with enhanced school filtering."""
         if not self.current_season or not self.selected_team_category:
             return
+        
+        # *** ENHANCED: Always refresh available schools when loading season data ***
+        self._load_available_schools()
         
         # Save current scroll position before reloading
         if hasattr(self, 'current_canvas') and self.current_canvas:
@@ -271,17 +312,17 @@ class ConferenceTab:
         season_year = self.current_season.split('-')[0]
         gender, weight = self.selected_team_category
         
-        # Get conference data for this season
+        # *** ENHANCED: Get conference data using CRR names ***
         cursor = self.db.conn.cursor()
         cursor.execute("""
-            SELECT s.name, ca.conference
+            SELECT s.crr_name, ca.conference
             FROM conference_affiliations ca
             JOIN teams t ON ca.team_id = t.team_id
             JOIN schools s ON t.school_id = s.school_id
             WHERE t.gender = ? AND t.weight = ?
             AND SUBSTR(ca.start_date, 1, 4) = ?
             AND (ca.end_date IS NULL OR SUBSTR(ca.end_date, 1, 4) > ?)
-            ORDER BY ca.conference, s.name
+            ORDER BY ca.conference, s.crr_name
         """, (gender, weight, season_year, season_year))
         
         affiliations = cursor.fetchall()
@@ -293,9 +334,13 @@ class ConferenceTab:
                 conference_data[conference] = []
             conference_data[conference].append(school)
         
+        print(f"📊 Loaded conference data for {self.current_season}: {len(affiliations)} affiliations across {len(conference_data)} conferences")
+        
         # Create the conference table
         self._create_conference_table(conference_data)
-    
+
+
+
     def _create_conference_table(self, conference_data):
         """Create the conference table with editable cells."""
         # Create scrollable frame with both vertical and horizontal scrollbars
@@ -401,18 +446,18 @@ class ConferenceTab:
         self.current_conference_data = conference_data
     
     def _create_school_cell(self, parent, row, col, conference, school):
-        """Create an editable school cell with exact positioning."""
+        """Create an editable school cell with exact positioning and temporal autocomplete."""
         y_pos = row * self.CELL_HEIGHT
         x_pos = col * self.CELL_WIDTH
         
         if school:
             # FIXED: Existing school - create label with exact same dimensions
             cell = tk.Label(parent, text=school, bg='white', relief='solid', bd=1,
-                           font=FONT_ENTRY, anchor='w')
+                        font=FONT_ENTRY, anchor='w')
             cell.place(x=x_pos, y=y_pos, width=self.CELL_WIDTH, height=self.CELL_HEIGHT)
             cell.bind('<Button-1>', lambda e, r=row-1, c=col: self._select_cell(r, c))  # -1 because row includes header
         else:
-            # FIXED: Empty cell - create entry without height parameter
+            # *** ENHANCED: Empty cell - create entry with current available schools ***
             cell = AutoCompleteEntry(parent, self.available_schools)
             cell.place(x=x_pos, y=y_pos, width=self.CELL_WIDTH, height=self.CELL_HEIGHT)
             
@@ -474,7 +519,7 @@ class ConferenceTab:
         self._clear_season_selection()
     
     def _on_cell_edit(self, row, col, conference):
-        """Handle cell editing completion."""
+        """Handle cell editing completion with enhanced validation."""
         cell_data = self.school_cells.get((row, col))
         if not cell_data:
             return
@@ -493,12 +538,22 @@ class ConferenceTab:
                 # Refresh the display
                 self._load_season_data()
         elif new_school:
-            messagebox.showerror("Invalid School", f"'{new_school}' is not available for this team category.")
+            # *** ENHANCED: Better error message with season context ***
+            messagebox.showerror("Invalid School", 
+                f"'{new_school}' was not participating in D1 for this team category in season {self.current_season}.\n\n"
+                f"Only schools with active D1 participation during the selected season can be added to conferences.")
             widget.delete(0, tk.END)
-    
+
+
     def _save_school_to_conference(self, school_name, conference):
-        """Save a school's conference affiliation."""
+        """Save a school's conference affiliation with enhanced validation."""
         if not self.selected_team_category or not self.current_season:
+            return
+        
+        # *** ENHANCED: Validate school is actually available for this season ***
+        if school_name not in self.available_schools:
+            messagebox.showerror("Invalid School", 
+                f"'{school_name}' is not available for this team category in season {self.current_season}")
             return
         
         gender, weight = self.selected_team_category
@@ -506,12 +561,12 @@ class ConferenceTab:
         start_date = f"{season_year}-09-01"  # Academic year start
         end_date = f"{int(season_year) + 1}-08-31"  # Academic year end
         
-        # Get team_id
+        # *** ENHANCED: Get team_id using CRR name (from enhanced db) ***
         cursor = self.db.conn.cursor()
         cursor.execute("""
             SELECT t.team_id FROM teams t
             JOIN schools s ON t.school_id = s.school_id
-            WHERE s.name = ? AND t.gender = ? AND t.weight = ?
+            WHERE s.crr_name = ? AND t.gender = ? AND t.weight = ?
         """, (school_name, gender, weight))
         
         result = cursor.fetchone()
@@ -536,11 +591,14 @@ class ConferenceTab:
             """, (team_id, conference, start_date, end_date))
             
             self.db.conn.commit()
+            print(f"✅ Added {school_name} to {conference} for season {self.current_season}")
             
         except Exception as e:
             self.db.conn.rollback()
             messagebox.showerror("Database Error", f"Failed to save: {str(e)}")
-    
+
+
+
     def _delete_selected(self):
         """Delete the selected school, conference, or season."""
         if self.selected_season:
@@ -701,7 +759,7 @@ class ConferenceTab:
         self._remove_school_from_conference(school)
     
     def _remove_school_from_conference(self, school_name):
-        """Remove a school from its conference for the current season."""
+        """Remove a school from its conference for the current season with enhanced validation."""
         if not self.selected_team_category or not self.current_season:
             return
         
@@ -709,16 +767,17 @@ class ConferenceTab:
         season_year = self.current_season.split('-')[0]
         end_date = f"{season_year}-08-31"  # End of previous academic year
         
-        # Get team_id
+        # *** ENHANCED: Get team_id using CRR name ***
         cursor = self.db.conn.cursor()
         cursor.execute("""
             SELECT t.team_id FROM teams t
             JOIN schools s ON t.school_id = s.school_id
-            WHERE s.name = ? AND t.gender = ? AND t.weight = ?
+            WHERE s.crr_name = ? AND t.gender = ? AND t.weight = ?
         """, (school_name, gender, weight))
         
         result = cursor.fetchone()
         if not result:
+            print(f"⚠️ Team not found for {school_name} when removing from conference")
             return
         
         team_id = result[0]
@@ -732,6 +791,7 @@ class ConferenceTab:
             """, (end_date, team_id, season_year))
             
             self.db.conn.commit()
+            print(f"✅ Removed {school_name} from conference for season {self.current_season}")
             
             # Refresh display
             self._load_season_data()
@@ -742,6 +802,8 @@ class ConferenceTab:
             self.db.conn.rollback()
             messagebox.showerror("Database Error", f"Failed to delete: {str(e)}")
     
+
+
     def _add_new_conference(self):
         """Add a new conference column to the current season."""
         if not self.current_season or not self.selected_team_category:
@@ -1022,8 +1084,16 @@ class ConferenceTab:
             messagebox.showerror("Copy Error", f"Failed to copy season data: {str(e)}")
     
     def refresh(self):
-        """Refresh this tab's data (called by main app)."""
+        """Refresh this tab's data with enhanced temporal awareness."""
         if self.selected_team_category:
+            # Refresh available schools for current season
             self._load_available_schools()
+            
+            # Update any existing autocomplete widgets
+            self._update_existing_autocomplete_widgets()
+            
+            # Reload season data if we have a current season
             if self.current_season:
                 self._load_season_data()
+                
+            print(f"🔄 Conference tab refreshed for {self.selected_team_category} in season {self.current_season}")
