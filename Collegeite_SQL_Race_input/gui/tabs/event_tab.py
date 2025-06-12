@@ -222,6 +222,9 @@ class EventTab:
                 regatta_options.append(display_text)
                 self.regatta_id_map[display_text] = regatta_id
             
+            # Sort alphabetically
+            regatta_options.sort()
+            
             self.regatta_combo['values'] = regatta_options
             
             # Only set initial selection if no regatta is currently selected
@@ -508,6 +511,9 @@ class EventTab:
                 display_text = format_regatta_display_name(name, location, start_date)
                 regatta_options.append(display_text)
                 self.regatta_id_map[display_text] = regatta_id
+            
+            # Sort alphabetically
+            regatta_options.sort()
             
             # Update the combo values
             self.regatta_combo['values'] = regatta_options

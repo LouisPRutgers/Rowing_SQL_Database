@@ -614,6 +614,7 @@ class ConferenceTab:
             messagebox.showwarning("No Selection", 
                                   "Please select a season (right-click tab), conference (click header), or school (click cell) to delete.")
     
+
     def _delete_season(self):
         """Delete an entire season and all its conference affiliations."""
         if not self.selected_season:
@@ -639,10 +640,48 @@ class ConferenceTab:
         
         affiliation_count = cursor.fetchone()[0]
         
+        # Handle empty seasons (allow deletion)
         if affiliation_count == 0:
-            messagebox.showwarning("Empty Season", f"Season '{season_to_delete}' has no conference affiliations to delete.")
-            return
+            # For empty seasons, just confirm and remove from UI
+            confirm_msg = (f"Delete empty season '{season_to_delete}'?\n\n"
+                        f"This season has no conference affiliations.\n"
+                        f"This action cannot be undone!")
+            
+            if not messagebox.askyesno("Confirm Season Deletion", confirm_msg, icon='question'):
+                return
+            
+            try:
+                # Remove season from local list
+                self.seasons.remove(season_to_delete)
+                
+                # Clear selection
+                self.selected_season = None
+                
+                # Find and remove the tab
+                for i, season in enumerate(self.season_notebook.tabs()):
+                    tab_text = self.season_notebook.tab(season, "text")
+                    if tab_text == season_to_delete:
+                        self.season_notebook.forget(season)
+                        break
+                
+                # If we deleted the current season, switch to another one
+                if self.current_season == season_to_delete:
+                    if self.seasons:
+                        self.current_season = self.seasons[0]
+                        self.season_notebook.select(0)
+                        self._load_season_data()
+                    else:
+                        self.current_season = None
+                
+                messagebox.showinfo("Season Deleted", 
+                                f"Empty season '{season_to_delete}' deleted successfully.")
+                return
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete season: {str(e)}")
+                return
         
+        # Handle seasons with data (existing logic)
         # Get list of conferences that will be affected
         cursor.execute("""
             SELECT DISTINCT ca.conference FROM conference_affiliations ca
@@ -656,11 +695,11 @@ class ConferenceTab:
         
         # Confirm deletion
         confirm_msg = (f"Delete entire season '{season_to_delete}'?\n\n"
-                      f"This will permanently remove:\n"
-                      f"• {affiliation_count} conference affiliations\n"
-                      f"• Affecting conferences: {conference_list}\n\n"
-                      f"This action cannot be undone!\n\n"
-                      f"Are you sure you want to proceed?")
+                    f"This will permanently remove:\n"
+                    f"• {affiliation_count} conference affiliations\n"
+                    f"• Affecting conferences: {conference_list}\n\n"
+                    f"This action cannot be undone!\n\n"
+                    f"Are you sure you want to proceed?")
         
         if not messagebox.askyesno("Confirm Season Deletion", confirm_msg, icon='warning'):
             return
@@ -689,13 +728,13 @@ class ConferenceTab:
             self._create_season_interface()
             
             messagebox.showinfo("Season Deleted", 
-                               f"Season '{season_to_delete}' deleted successfully.\n"
-                               f"Removed {deleted_count} conference affiliations.")
+                            f"Season '{season_to_delete}' deleted successfully.\n"
+                            f"Removed {deleted_count} conference affiliations.")
             
         except Exception as e:
             self.db.conn.rollback()
             messagebox.showerror("Database Error", f"Failed to delete season: {str(e)}")
-    
+
     def _delete_conference(self):
         """Delete an entire conference and all its schools."""
         if not self.selected_conference:
@@ -976,7 +1015,7 @@ class ConferenceTab:
             
             # Create the new season
             if copy_from_season == "None":
-                self._create_new_season(selected_season, copy_from=None)
+                self._create_new_season(selected_season)
             else:
                 self._create_new_season(selected_season, copy_from=copy_from_season)
         
@@ -998,6 +1037,7 @@ class ConferenceTab:
         # Focus on season combo
         season_combo.focus_set()
     
+
     def _create_new_season(self, new_season: str, copy_from: str = None):
         """Create a new season, optionally copying conference data from an existing season."""
         print(f"Creating new season: {new_season}")
@@ -1012,8 +1052,8 @@ class ConferenceTab:
         if copy_from and self.selected_team_category:
             self._copy_season_data(copy_from, new_season)
         
-        # Recreate the season interface to include the new tab
-        self._create_season_interface()
+        # Instead of recreating the entire interface, just add the new tab
+        self._add_season_tab(new_season)
         
         # Select the new season tab
         try:
@@ -1026,11 +1066,21 @@ class ConferenceTab:
         
         if copy_from:
             messagebox.showinfo("Season Created", 
-                               f"Season '{new_season}' created successfully with data copied from '{copy_from}'.")
+                            f"Season '{new_season}' created successfully with data copied from '{copy_from}'.")
         else:
             messagebox.showinfo("Season Created", 
-                               f"Season '{new_season}' created successfully as an empty season.")
-    
+                            f"Season '{new_season}' created successfully as an empty season.")
+
+    def _add_season_tab(self, season):
+        """Add a single season tab to the notebook."""
+        frame = ttk.Frame(self.season_notebook)
+        self.season_notebook.add(frame, text=season)
+        
+        # Bind right-click to season tab for selection
+        tab_id = self.season_notebook.tabs()[-1]  # Get the ID of the just-added tab
+        # Note: The event bindings are already set up in _create_season_interface
+
+
     def _copy_season_data(self, source_season: str, target_season: str):
         """Copy conference affiliation data from one season to another."""
         if not self.selected_team_category:

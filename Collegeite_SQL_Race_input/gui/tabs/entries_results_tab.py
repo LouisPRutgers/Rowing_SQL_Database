@@ -273,6 +273,9 @@ class EntriesResultsTab:
             regatta_options.append(display_text)
             self.regatta_id_map[display_text] = regatta_id
         
+        # Sort alphabetically
+        regatta_options.sort()
+        
         self.regatta_combo['values'] = regatta_options
         if regatta_options:
             self.regatta_combo.set(regatta_options[0])
@@ -299,6 +302,9 @@ class EntriesResultsTab:
             display_text = format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, scheduled_at)
             event_options.append(display_text)
             self.event_id_map[display_text] = event_id
+        
+        # Sort alphabetically
+        event_options.sort()
         
         self.event_combo['values'] = event_options
         # Clear selection when regatta changes
