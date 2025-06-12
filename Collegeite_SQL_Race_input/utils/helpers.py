@@ -64,7 +64,11 @@ def format_regatta_display_name(name, location, start_date):
     Returns:
         Formatted string like "Head of the Charles - Boston (2024-10-19)"
     """
-    return f"{name}"
+    if start_date:
+        return f"{name} - ({start_date})"
+    else:
+        return f"{name}"
+
 
 
 def auto_size_treeview_columns(treeview: ttk.Treeview, data_rows: List[Tuple], 

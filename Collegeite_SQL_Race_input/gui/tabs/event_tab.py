@@ -214,16 +214,19 @@ class EventTab:
         self._updating_regatta_combo = True
         try:
             regattas = self.db.get_regattas()
+            
+            # Sort regattas by start_date instead of alphabetically
+            regattas_sorted = sorted(regattas, key=lambda x: x[3] if x[3] else '9999-12-31', reverse=True)  # x[3] is start_date
+            
             regatta_options = []
             self.regatta_id_map = {}
             
-            for regatta_id, name, location, start_date, end_date in regattas:
+            for regatta_id, name, location, start_date, end_date in regattas_sorted:
                 display_text = format_regatta_display_name(name, location, start_date)
                 regatta_options.append(display_text)
                 self.regatta_id_map[display_text] = regatta_id
             
-            # Sort alphabetically
-            regatta_options.sort()
+            # Remove the alphabetical sort - regatta_options.sort()
             
             self.regatta_combo['values'] = regatta_options
             
@@ -512,8 +515,16 @@ class EventTab:
                 regatta_options.append(display_text)
                 self.regatta_id_map[display_text] = regatta_id
             
-            # Sort alphabetically
-            regatta_options.sort()
+            # Sort regattas by start_date instead of alphabetically
+            regattas_sorted = sorted(regattas, key=lambda x: x[3] if x[3] else '9999-12-31', reverse=True)  # x[3] is start_date
+
+            regatta_options = []
+            self.regatta_id_map = {}
+
+            for regatta_id, name, location, start_date, end_date in regattas_sorted:
+                display_text = format_regatta_display_name(name, location, start_date)
+                regatta_options.append(display_text)
+                self.regatta_id_map[display_text] = regatta_id
             
             # Update the combo values
             self.regatta_combo['values'] = regatta_options

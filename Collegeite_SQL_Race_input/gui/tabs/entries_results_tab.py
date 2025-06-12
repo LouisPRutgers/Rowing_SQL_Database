@@ -260,21 +260,22 @@ class EntriesResultsTab:
         self._submit_results()
         return "break"  # Consume the event
 
-
-
     def _populate_regatta_combo(self):
         """Populate the regatta dropdown."""
         regattas = self.db.get_regattas()
+        
+        # Sort regattas by start_date instead of alphabetically
+        regattas_sorted = sorted(regattas, key=lambda x: x[3] if x[3] else '9999-12-31', reverse=True)  # x[3] is start_date
+        
         regatta_options = []
         self.regatta_id_map = {}
         
-        for regatta_id, name, location, start_date, end_date in regattas:
+        for regatta_id, name, location, start_date, end_date in regattas_sorted:
             display_text = format_regatta_display_name(name, location, start_date)
             regatta_options.append(display_text)
             self.regatta_id_map[display_text] = regatta_id
         
-        # Sort alphabetically
-        regatta_options.sort()
+        # Remove the alphabetical sort - regatta_options.sort()
         
         self.regatta_combo['values'] = regatta_options
         if regatta_options:
@@ -288,8 +289,9 @@ class EntriesResultsTab:
             regatta_id = self.regatta_id_map[selected_text]
             self._populate_event_combo(regatta_id)
     
+
     def _populate_event_combo(self, regatta_id=None):
-        """Populate the event dropdown for the selected regatta."""
+        """Populate the event dropdown for the selected regatta with unique display names."""
         if regatta_id is None:
             self.event_combo['values'] = []
             return
@@ -298,20 +300,47 @@ class EntriesResultsTab:
         event_options = []
         self.event_id_map = {}
         
-        for event_id, boat_type, event_boat_class, gender, weight, round_name, scheduled_at in events:
-            display_text = format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, scheduled_at)
-            event_options.append(display_text)
-            self.event_id_map[display_text] = event_id
+        # First pass: group events by their base display name
+        display_groups = {}
         
-        # Sort alphabetically
-        event_options.sort()
+        for event_id, boat_type, event_boat_class, gender, weight, round_name, scheduled_at in events:
+            base_display_text = format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, scheduled_at)
+            
+            if base_display_text not in display_groups:
+                display_groups[base_display_text] = []
+            
+            display_groups[base_display_text].append((event_id, scheduled_at))
+        
+        # Second pass: create unique display names with sequential counters
+        for base_display_text, event_list in display_groups.items():
+            if len(event_list) == 1:
+                # Only one event with this name - use base name
+                event_id, scheduled_at = event_list[0]
+                display_text = base_display_text
+                event_options.append(display_text)
+                self.event_id_map[display_text] = event_id
+            else:
+                # Multiple events with same name - add sequential counters
+                for counter, (event_id, scheduled_at) in enumerate(event_list, 1):
+                    if scheduled_at:
+                        # If we have time info, use time + counter for extra clarity
+                        display_text = f"{base_display_text} at {scheduled_at} (Event {counter})"
+                    else:
+                        # No time info, just use counter
+                        display_text = f"{base_display_text} (Event {counter})"
+                    
+                    event_options.append(display_text)
+                    self.event_id_map[display_text] = event_id
         
         self.event_combo['values'] = event_options
         # Clear selection when regatta changes
         self.event_var.set("")
         self.selected_event_label.config(text="No event selected", fg='red')
         self._clear_form()
-        
+
+
+
+
     def _on_event_combo_select(self, event):
         """Handle event selection with temporal school filtering."""
         selected_text = self.event_var.get()
@@ -360,6 +389,7 @@ class EntriesResultsTab:
                 if self.entry_rows:
                     self.entry_rows[0][2].focus_set()
 
+
     def on_event_changed(self, event_id: int, event_boat_class: str = None):
         """Handle event change notification from main app with temporal filtering."""
         self.app.current_event_id = event_id
@@ -367,7 +397,6 @@ class EntriesResultsTab:
             self.current_event_boat_class = event_boat_class
         
         # Find and set the corresponding event in the dropdown
-        # First, we need to find which regatta this event belongs to
         cursor = self.db.conn.cursor()
         cursor.execute("""
             SELECT r.regatta_id, r.name, r.location, r.start_date, 
@@ -388,40 +417,49 @@ class EntriesResultsTab:
         if regatta_display in self.regatta_id_map:
             self.regatta_var.set(regatta_display)
             self._populate_event_combo(regatta_id)
-        
-        # Set the event dropdown
-        event_display = format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, scheduled_at)
-        if event_display in self.event_id_map:
-            self.event_var.set(event_display)
             
-            # Update the current event info
-            self.current_event_boat_class = event_boat_class
+            # *** ENHANCED: Find the correct event in the dropdown by event_id ***
+            # Look through the event_id_map to find the display text that maps to our event_id
+            selected_display_text = None
+            for display_text, mapped_event_id in self.event_id_map.items():
+                if mapped_event_id == event_id:
+                    selected_display_text = display_text
+                    break
             
-            # *** ENHANCED: Use temporal school filtering ***
-            event_date = self.db.get_event_date(event_id)
-            participating_schools = self.db.get_schools_participating_at_date(gender, weight, event_date)
-            self.current_school_choices = participating_schools
-            self._update_existing_autocomplete_widgets()
-            
-            print(f"🔄 Event changed: {len(participating_schools)} schools available for {gender} {weight} on {event_date}")
-            
-            # Update selected event display
-            self.selected_event_label.config(
-                text=f"Selected Event: {event_display}",
-                fg='green'
-            )
-            
-            # Load existing entries if any
-            self._load_existing_entries()
-            
-            # If no existing entries, start with empty form
-            if not self.entry_rows:
-                for _ in range(6):  # Start with 6 rows like Race Ranker
-                    self._add_entry_row()
+            if selected_display_text:
+                self.event_var.set(selected_display_text)
                 
-                # Focus on first school entry
-                if self.entry_rows:
-                    self.entry_rows[0][2].focus_set()
+                # Update the current event info
+                self.current_event_boat_class = event_boat_class
+                
+                # *** ENHANCED: Use temporal school filtering ***
+                event_date = self.db.get_event_date(event_id)
+                participating_schools = self.db.get_schools_participating_at_date(gender, weight, event_date)
+                self.current_school_choices = participating_schools
+                self._update_existing_autocomplete_widgets()
+                
+                print(f"🔄 Event changed: {len(participating_schools)} schools available for {gender} {weight} on {event_date}")
+                
+                # Update selected event display
+                self.selected_event_label.config(
+                    text=f"Selected Event: {selected_display_text}",
+                    fg='green'
+                )
+                
+                # Load existing entries if any
+                self._load_existing_entries()
+                
+                # If no existing entries, start with empty form
+                if not self.entry_rows:
+                    for _ in range(6):  # Start with 6 rows like Race Ranker
+                        self._add_entry_row()
+                    
+                    # Focus on first school entry
+                    if self.entry_rows:
+                        self.entry_rows[0][2].focus_set()
+            else:
+                print(f"⚠️ Could not find event {event_id} in dropdown after population")
+
 
 
     def _load_existing_entries(self):
