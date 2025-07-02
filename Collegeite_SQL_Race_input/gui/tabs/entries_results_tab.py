@@ -5,7 +5,7 @@ UPDATED VERSION - Now includes Notes field for each entry
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from Collegeite_SQL_Race_input.config.constants import FONT_LABEL, FONT_ENTRY, FONT_BUTTON, FONT_TITLE
+from Collegeite_SQL_Race_input.config.constants import FONT_LABEL, FONT_ENTRY, FONT_BUTTON, FONT_TITLE, EVENT_BOAT_CLASSES
 from Collegeite_SQL_Race_input.widgets.time_entries import AutoCompleteEntry, TimeEntry
 from Collegeite_SQL_Race_input.utils.helpers import (
     format_event_display_name, 
@@ -159,8 +159,8 @@ class EntriesResultsTab:
         self.FIELD_LANE_WIDTH = 8         # Lane field width
         self.FIELD_POS_WIDTH = 6          # Position field width
         self.FIELD_SCHOOL_WIDTH = 67      # School field width (reduced)
-        self.FIELD_BOAT_CLASS_WIDTH = 14  # Boat class field width (reduced)
-        self.FIELD_TIME_WIDTH = 13        # Time field width
+        self.FIELD_BOAT_CLASS_WIDTH = 13  # Boat class field width (reduced)
+        self.FIELD_TIME_WIDTH = 14        # Time field width
         self.FIELD_NOTES_WIDTH = 22       # NEW: Notes field width
         
         # Headers with hardcoded widths
@@ -303,8 +303,8 @@ class EntriesResultsTab:
         # First pass: group events by their base display name
         display_groups = {}
         
-        for event_id, boat_type, event_boat_class, gender, weight, round_name, scheduled_at in events:
-            base_display_text = format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, scheduled_at)
+        for event_id, boat_type, event_boat_class, gender, weight, round_name, event_distance, scheduled_at in events:
+            base_display_text = format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, event_distance, scheduled_at)
             
             if base_display_text not in display_groups:
                 display_groups[base_display_text] = []
@@ -400,7 +400,7 @@ class EntriesResultsTab:
         cursor = self.db.conn.cursor()
         cursor.execute("""
             SELECT r.regatta_id, r.name, r.location, r.start_date, 
-                e.gender, e.weight, e.event_boat_class, e.boat_type, e.round, e.scheduled_at
+                e.gender, e.weight, e.event_boat_class, e.boat_type, e.round, e.event_distance, e.scheduled_at
             FROM events e
             JOIN regattas r ON e.regatta_id = r.regatta_id
             WHERE e.event_id = ?
@@ -410,8 +410,7 @@ class EntriesResultsTab:
         if not result:
             return
         
-        regatta_id, regatta_name, location, start_date, gender, weight, event_boat_class, boat_type, round_name, scheduled_at = result
-        
+        regatta_id, regatta_name, location, start_date, gender, weight, event_boat_class, boat_type, round_name, event_distance, scheduled_at = result      
         # Set the regatta dropdown
         regatta_display = format_regatta_display_name(regatta_name, location, start_date)
         if regatta_display in self.regatta_id_map:
@@ -484,7 +483,7 @@ class EntriesResultsTab:
         entries = cursor.fetchall()
         
         for entry_id, school_name, boat_class, lane, position, elapsed_sec, notes in entries:
-            self._add_entry_row()
+            self._add_entry_row(boat_class=boat_class or "")
             row = self.entry_rows[-1]
             
             # Fill in the data using safe methods that don't trigger autocomplete
@@ -494,9 +493,6 @@ class EntriesResultsTab:
             # Use set_text method to avoid triggering autocomplete
             row[2].set_text(school_name)  # This is the AutoCompleteEntry
             
-            if boat_class:
-                row[3].delete(0, tk.END)
-                row[3].insert(0, boat_class)
             if elapsed_sec:
                 # Use the helper function to format time consistently
                 time_str = format_time_seconds(elapsed_sec)
@@ -526,7 +522,7 @@ class EntriesResultsTab:
         if updated_count > 0:
             print(f"✅ Updated {updated_count} autocomplete widgets with new school choices")
 
-    def _add_entry_row(self, school="", time="", notes=""):
+    def _add_entry_row(self, school="", time="", notes="", boat_class=""):
         """Add a new entry row to the form with updated autocomplete choices."""
         row_num = len(self.entry_rows) + 1
         row_frame = tk.Frame(self.scroll_frame)
@@ -545,10 +541,19 @@ class EntriesResultsTab:
         school_entry.pack(side='left')
         school_entry.insert(0, school)
         
-        boat_class_entry = tk.Entry(row_frame, font=FONT_ENTRY, width=self.FIELD_BOAT_CLASS_WIDTH, justify='center')
+        boat_class_entry = ttk.Combobox(row_frame, values=EVENT_BOAT_CLASSES, state='readonly', 
+                                       font=FONT_ENTRY, width=self.FIELD_BOAT_CLASS_WIDTH-2)  # -2 to account for dropdown arrow
         boat_class_entry.pack(side='left')
-        boat_class_entry.insert(0, self.current_event_boat_class)
         
+        # Set the default value based on current event boat class or provided boat_class parameter
+        if boat_class:  # If boat_class parameter was provided (for loading existing entries)
+            default_value = boat_class if boat_class in EVENT_BOAT_CLASSES else EVENT_BOAT_CLASSES[0]
+        elif hasattr(self, 'current_event_boat_class') and self.current_event_boat_class:
+            default_value = self.current_event_boat_class if self.current_event_boat_class in EVENT_BOAT_CLASSES else EVENT_BOAT_CLASSES[0]
+        else:
+            default_value = EVENT_BOAT_CLASSES[0]  # Default to "1V"
+        
+        boat_class_entry.set(default_value)        
         time_entry = TimeEntry(row_frame, width=self.FIELD_TIME_WIDTH)
         time_entry.pack(side='left')
         time_entry.insert(0, time)
@@ -568,9 +573,12 @@ class EntriesResultsTab:
         school_entry._update_choices_callback = on_school_choices_update
         
         # Bind events for automatic updates - INCLUDING notes_entry
-        for widget in [lane_entry, school_entry, boat_class_entry, notes_entry]:
+        for widget in [lane_entry, school_entry, notes_entry]:
             widget.bind('<KeyRelease>', self._on_field_change)
             widget.bind('<FocusOut>', self._on_field_change)
+        
+        # Bind combobox selection event for boat class dropdown
+        boat_class_entry.bind('<<ComboboxSelected>>', self._on_field_change)
         
         # For time_entry, bind only KeyRelease to update preview, but preserve FocusOut for normalization
         def time_entry_focus_out_handler(event):
@@ -617,7 +625,7 @@ class EntriesResultsTab:
             school = school_entry.get().strip()
             time_text = time_entry.get().strip()
             lane = lane_entry.get().strip()
-            boat_class = boat_class_entry.get().strip()
+            boat_class = boat_class_entry.get().strip() if hasattr(boat_class_entry, 'get') else ""
             notes = notes_entry.get().strip()  # NEW: Get notes
             
             if school and time_text:
@@ -663,28 +671,29 @@ class EntriesResultsTab:
             display_data.append(row_data)
             self.results_tree.insert('', 'end', values=row_data)
         
-        # Auto-size columns
-        column_headers = {
-            'Position': 'Position',
-            'Lane': 'Lane', 
-            'School': 'School',
-            'Boat Class': 'Boat Class',
-            'Time': 'Time',
-            'Margin': 'Margin',
-            'Notes': 'Notes'  # NEW: Add notes header
+        # Set fixed column widths to fit within window
+        column_widths = {
+            'Position': 60,
+            'Lane': 50,
+            'School': 180,
+            'Boat Class': 70,
+            'Time': 90,
+            'Margin': 70,
+            'Notes': 120
         }
         
-        min_widths = {
-            'Position': 70,
-            'Lane': 60,
-            'School': 170,  # Reduced to make room for notes
-            'Boat Class': 90,  # Reduced
-            'Time': 100,
-            'Margin': 80,
-            'Notes': 150  # NEW: Set minimum width for notes
-        }
+        # Force treeview to update its layout first
+        self.results_tree.update_idletasks()
         
-        auto_size_treeview_columns(self.results_tree, display_data, column_headers, min_widths)
+        # Apply the fixed widths
+        for col, width in column_widths.items():
+            self.results_tree.column(col, width=width, minwidth=width//2)
+        
+        # Make sure all columns are visible and properly sized
+        self.results_tree.column('#0', width=0, stretch=False)  # Hide the tree column
+        
+        # Force another update to ensure changes take effect
+        self.results_tree.update_idletasks()
     
 
 

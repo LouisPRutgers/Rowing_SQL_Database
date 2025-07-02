@@ -11,7 +11,7 @@ from datetime import datetime
 
 # ── Original Helper Functions ──────────────────────────────────────────
 
-def format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, scheduled_at=None):
+def format_event_display_name(gender, weight, event_boat_class, boat_type, round_name, event_distance=None, scheduled_at=None):
     """
     Format an event name for display in dropdowns and other UI elements.
     
@@ -21,10 +21,11 @@ def format_event_display_name(gender, weight, event_boat_class, boat_type, round
         event_boat_class: '1V', '2V', etc.
         boat_type: '8+', '4+', etc.
         round_name: 'Final', 'Heat 1', etc.
+        event_distance: '2k', '5k', etc. (optional)
         scheduled_at: Optional datetime string
         
     Returns:
-        Formatted string like "Openweight Women's 1V 8+ - Final"
+        Formatted string like "Openweight Women's 1V 8+ - Final (2k)"
     """
     # Gender mapping
     gender_map = {
@@ -44,10 +45,10 @@ def format_event_display_name(gender, weight, event_boat_class, boat_type, round
     weight_str = weight_map.get(weight, weight)
     
     display_name = f"{weight_str} {gender_str} {event_boat_class} {boat_type} - {round_name}"
-    
+      
     # Add scheduled time if provided
     if scheduled_at:
-        display_name += f" ({scheduled_at})"
+        display_name += f" at {scheduled_at}"
     
     return display_name
 

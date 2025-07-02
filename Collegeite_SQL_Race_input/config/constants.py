@@ -5,13 +5,15 @@ Constants and configuration values for the rowing database application.
 # ── Rowing Data Constants ──────────────────────────────────────────────
 BOAT_TYPES = ["8+", "4+", "4x", "2x", "2-", "1x"]
 
-EVENT_BOAT_CLASSES = ["1V", "2V", "3V", "4V", "5V"]
+EVENT_BOAT_CLASSES = ["1V", "2V", "3V", "4V", "5V", "Novice"]
 
 GENDERS = [("M", "Men"), ("W", "Women")]
 
 WEIGHTS = [("LW", "Lightweight"), ("HW", "Heavyweight"), ("OW", "Openweight")]
 
 ROUNDS = ["Heat", "Semi", "Final", "Time Trial", "Scrimmage"]
+
+EVENT_DISTANCES = ["5k", "2k", "1k", "500m"]
 
 # ── Font Configuration ─────────────────────────────────────────────────
 FONT_LABEL = ("Helvetica", 12)

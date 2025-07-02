@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from tkcalendar import DateEntry
 
-from Collegeite_SQL_Race_input.config.constants import (BOAT_TYPES, EVENT_BOAT_CLASSES, GENDERS, WEIGHTS, ROUNDS,
+from Collegeite_SQL_Race_input.config.constants import (BOAT_TYPES, EVENT_BOAT_CLASSES, GENDERS, WEIGHTS, ROUNDS, EVENT_DISTANCES,
                             FONT_LABEL, FONT_ENTRY, FONT_BUTTON, FONT_TITLE)
 from Collegeite_SQL_Race_input.widgets import ScheduleTimeEntry
 from Collegeite_SQL_Race_input.utils import format_event_display_name, format_regatta_display_name, auto_size_treeview_columns, make_treeview_sortable
@@ -39,6 +39,7 @@ class EventTab:
         self.round_var = None
         self.scheduled_date = None
         self.scheduled_time_entry = None
+        self.event_distance_var = None
         
         # Store event data for deletion
         self.event_data = {}  # Maps tree item IDs to event data
@@ -110,13 +111,22 @@ class EventTab:
         round_combo = ttk.Combobox(form_frame, textvariable=self.round_var, 
                                   values=ROUNDS, state='normal', font=FONT_ENTRY)
         round_combo.grid(row=4, column=1, padx=5, pady=5)
-        
+
+        # Event Distance
+        tk.Label(form_frame, text="Event Distance:", font=FONT_LABEL).grid(row=5, column=0, sticky='e', padx=5, pady=5)
+        self.event_distance_var = tk.StringVar(value=EVENT_DISTANCES[1])  # Default to "2k"
+        event_distance_combo = ttk.Combobox(form_frame, textvariable=self.event_distance_var, 
+                                          values=EVENT_DISTANCES, state='normal', font=FONT_ENTRY)
+        event_distance_combo.grid(row=5, column=1, padx=5, pady=5)
+        event_distance_combo.bind('<KeyRelease>', self._validate_event_distance)
+
+
         # Scheduled date and time
-        tk.Label(form_frame, text="Scheduled:", font=FONT_LABEL).grid(row=5, column=0, sticky='e', padx=5, pady=5)
+        tk.Label(form_frame, text="Scheduled:", font=FONT_LABEL).grid(row=6, column=0, sticky='e', padx=5, pady=5)
         
         datetime_frame = tk.Frame(form_frame)
-        datetime_frame.grid(row=5, column=1, columnspan=2, sticky='w', padx=5, pady=5)
-        
+        datetime_frame.grid(row=6, column=1, columnspan=2, sticky='w', padx=5, pady=5)
+
         # Date picker
         self.scheduled_date = DateEntry(datetime_frame, font=FONT_ENTRY, date_pattern='yyyy-mm-dd', width=12)
         self.scheduled_date.pack(side='left', padx=(0, 15))
@@ -128,7 +138,7 @@ class EventTab:
         
         # Add event button
         tk.Button(form_frame, text="Create Event", font=FONT_BUTTON, 
-                 command=self._add_event).grid(row=6, column=1, pady=10)
+                 command=self._add_event).grid(row=7, column=1, pady=10)
         
         # Events table for selected regatta
         events_frame = tk.LabelFrame(self.frame, text="Events for Selected Regatta", font=FONT_LABEL)
@@ -139,7 +149,7 @@ class EventTab:
         events_container.pack(fill='both', expand=True, padx=10, pady=5)
         
         # Create treeview for events
-        columns = ('Regatta Name', 'Boat Type', 'Class', 'Gender', 'Weight', 'Round', 'Scheduled')
+        columns = ('Regatta Name', 'Boat Type', 'Class', 'Gender', 'Weight', 'Round', 'Distance', 'Scheduled')
         self.events_tree = ttk.Treeview(events_container, columns=columns, show='headings', height=8)
         
         # Define column headings and widths
@@ -149,6 +159,7 @@ class EventTab:
         self.events_tree.heading('Gender', text='Gender')
         self.events_tree.heading('Weight', text='Weight')
         self.events_tree.heading('Round', text='Round')
+        self.events_tree.heading('Distance', text='Distance')
         self.events_tree.heading('Scheduled', text='Scheduled')
         
         self.events_tree.column('Regatta Name', width=150, anchor='center')
@@ -157,6 +168,7 @@ class EventTab:
         self.events_tree.column('Gender', width=60, anchor='center')
         self.events_tree.column('Weight', width=80, anchor='center')
         self.events_tree.column('Round', width=100, anchor='center')
+        self.events_tree.column('Distance', width=80, anchor='center')
         self.events_tree.column('Scheduled', width=120, anchor='center')
         
         # Add scrollbar
@@ -167,7 +179,7 @@ class EventTab:
         events_scrollbar.pack(side='right', fill='y')
         
         # Make the events table sortable
-        sortable_columns = ['Regatta Name', 'Boat Type', 'Class', 'Gender', 'Weight', 'Round', 'Scheduled']
+        sortable_columns = ['Regatta Name', 'Boat Type', 'Class', 'Gender', 'Weight', 'Round', 'Distance', 'Scheduled']
         make_treeview_sortable(self.events_tree, sortable_columns)
         
         # DELETION FUNCTIONALITY: Add buttons for event management
@@ -287,7 +299,27 @@ class EventTab:
             except ValueError:
                 # If date parsing fails, just leave it as is
                 pass
-    
+            
+    def _validate_event_distance(self, event=None):
+        """Validate Event Distance input - allow preset values or integer meters."""
+        distance = self.event_distance_var.get().strip()
+        
+        # If it's one of the preset values, it's valid
+        if distance in EVENT_DISTANCES:
+            return
+        
+        # If it's custom input, validate it's an integer followed by 'm'
+        if distance.endswith('m'):
+            try:
+                meters = int(distance[:-1])
+                if meters > 0:
+                    return  # Valid custom distance
+            except ValueError:
+                pass
+        
+        # If not valid and not empty, could show warning, but for now just allow it
+        # User will get feedback when they try to create the event
+
     def _refresh_events_list(self):
         """Refresh the events table for the selected regatta."""
         # Clear existing items and event data mapping
@@ -309,13 +341,13 @@ class EventTab:
         # Prepare data for display and auto-sizing
         display_data = []
         
-        for event_id, boat_type, event_boat_class, gender, weight, round_name, scheduled_at in events:
+        for event_id, boat_type, event_boat_class, gender, weight, round_name, event_distance, scheduled_at in events:
             # Convert codes to full display names
             gender_display = next((desc for code, desc in GENDERS if code == gender), gender)
             weight_display = next((desc for code, desc in WEIGHTS if code == weight), weight)
             
             scheduled_display = scheduled_at if scheduled_at else ""
-            row_data = (regatta_name, boat_type, event_boat_class, gender_display, weight_display, round_name, scheduled_display)
+            row_data = (regatta_name, boat_type, event_boat_class, gender_display, weight_display, round_name, event_distance, scheduled_display)
             display_data.append(row_data)
             
             # Insert into tree and store event data for deletion
@@ -327,6 +359,7 @@ class EventTab:
                 'gender': gender,
                 'weight': weight,
                 'round_name': round_name,
+                'event_distance': event_distance,
                 'scheduled_at': scheduled_at
             }
         
@@ -338,6 +371,7 @@ class EventTab:
             'Gender': 'Gender',
             'Weight': 'Weight',
             'Round': 'Round',
+            'Distance': 'Distance',
             'Scheduled': 'Scheduled'
         }
         
@@ -348,6 +382,7 @@ class EventTab:
             'Gender': 60,
             'Weight': 80,
             'Round': 100,
+            'Distance': 80,
             'Scheduled': 120
         }
         
@@ -442,6 +477,25 @@ class EventTab:
         event_boat_class = self.event_class_var.get()
         gender_display = self.gender_var.get()
         weight_display = self.weight_var.get()
+        event_distance = self.event_distance_var.get().strip()
+
+        # Validate Event Distance
+        if not event_distance:
+            messagebox.showerror("Error", "Please specify a Event Distance")
+            return
+        
+        # Validate custom distance format
+        if event_distance not in EVENT_DISTANCES:
+            if not event_distance.endswith('m'):
+                messagebox.showerror("Error", "Custom distance must end with 'm' (e.g., '1500m')")
+                return
+            try:
+                meters = int(event_distance[:-1])
+                if meters <= 0:
+                    raise ValueError()
+            except ValueError:
+                messagebox.showerror("Error", "Custom distance must be a positive integer followed by 'm'")
+                return
 
         # Find gender code
         gender = next((code for code, desc in GENDERS if desc == gender_display), "M")
@@ -464,10 +518,10 @@ class EventTab:
         try:
             event_id = self.db.add_event(
                 self.app.current_regatta_id, boat_type, event_boat_class,
-                gender, weight, round_name, scheduled_at
+                gender, weight, round_name, event_distance, scheduled_at
             )
             
-            event_description = f"{gender_display} {weight_display} {event_boat_class} {boat_type} - {round_name}"
+            event_description = f"{gender_display} {weight_display} {event_boat_class} {boat_type} - {round_name} ({event_distance})"
             if scheduled_at:
                 event_description += f" at {scheduled_at}"
             
@@ -481,7 +535,6 @@ class EventTab:
             self._refresh_events_list()
             
             # Notify main app about the new event (but don't refresh this tab again)
-            # We'll create a more targeted refresh method
             if hasattr(self.app, 'refresh_tabs_except_events'):
                 self.app.refresh_tabs_except_events()
             else:

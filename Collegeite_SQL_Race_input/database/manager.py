@@ -313,22 +313,22 @@ class DatabaseManager:
         cursor.execute("SELECT regatta_id, name, location, start_date, end_date FROM regattas ORDER BY start_date DESC")
         return cursor.fetchall()
     
-    def get_events_for_regatta(self, regatta_id: int) -> List[Tuple[int, str, str, str, str, str, str]]:
+    def get_events_for_regatta(self, regatta_id: int) -> List[Tuple[int, str, str, str, str, str, str, str]]:
         """Return events for a specific regatta."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT event_id, boat_type, event_boat_class, gender, weight, round, scheduled_at
+            SELECT event_id, boat_type, event_boat_class, gender, weight, round, event_distance, scheduled_at
             FROM events
             WHERE regatta_id = ?
             ORDER BY scheduled_at, gender, weight, event_boat_class
         """, (regatta_id,))
         return cursor.fetchall()
     
-    def get_all_events(self) -> List[Tuple[int, str, str, str, str, str, str, str, str]]:
+    def get_all_events(self) -> List[Tuple[int, str, str, str, str, str, str, str, str, str]]:
         """Return all events with regatta info."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT e.event_id, r.name, e.gender, e.weight, e.event_boat_class, e.boat_type, e.round, e.scheduled_at, r.regatta_id
+            SELECT e.event_id, r.name, e.gender, e.weight, e.event_boat_class, e.boat_type, e.round, e.event_distance, e.scheduled_at, r.regatta_id
             FROM events e
             JOIN regattas r ON e.regatta_id = r.regatta_id
             ORDER BY r.start_date DESC, e.scheduled_at
@@ -346,13 +346,13 @@ class DatabaseManager:
         return cursor.lastrowid
     
     def add_event(self, regatta_id: int, boat_type: str, event_boat_class: str, 
-                  gender: str, weight: str, round_name: str, scheduled_at: str = None) -> int:
+                  gender: str, weight: str, round_name: str, event_distance: str = "2k", scheduled_at: str = None) -> int:
         """Add a new event and return its ID."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO events (regatta_id, boat_type, event_boat_class, gender, weight, round, scheduled_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (regatta_id, boat_type, event_boat_class, gender, weight, round_name, scheduled_at))
+            INSERT INTO events (regatta_id, boat_type, event_boat_class, gender, weight, round, event_distance, scheduled_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (regatta_id, boat_type, event_boat_class, gender, weight, round_name, event_distance, scheduled_at))
         self.conn.commit()
         return cursor.lastrowid
     
@@ -583,11 +583,11 @@ class DatabaseManager:
         cursor.execute("SELECT COUNT(*) FROM entries WHERE event_id = ?", (event_id,))
         return cursor.fetchone()[0]
     
-    def get_event_details(self, event_id: int) -> Optional[Tuple[int, str, str, str, str, str, str]]:
+    def get_event_details(self, event_id: int) -> Optional[Tuple[int, str, str, str, str, str, str, str]]:
         """Get detailed information about a specific event."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT event_id, boat_type, event_boat_class, gender, weight, round, scheduled_at
+            SELECT event_id, boat_type, event_boat_class, gender, weight, round, event_distance, scheduled_at
             FROM events
             WHERE event_id = ?
         """, (event_id,))

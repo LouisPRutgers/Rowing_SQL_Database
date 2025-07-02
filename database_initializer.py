@@ -336,6 +336,7 @@ class RowingDatabaseInitializer:
                 gender TEXT NOT NULL CHECK (gender IN ('M', 'W')),
                 weight TEXT NOT NULL CHECK (weight IN ('LW', 'HW', 'OW')),
                 round TEXT NOT NULL,
+                event_distance TEXT DEFAULT '2k',
                 scheduled_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (regatta_id) REFERENCES regattas (regatta_id) ON UPDATE CASCADE ON DELETE CASCADE
@@ -425,7 +426,7 @@ class RowingDatabaseInitializer:
         
         # Add migration for entries table notes column
         self.migrate_entries_table_for_notes()
-        
+        self.migrate_events_table_for_event_distance()
         self.conn.commit()
         print("✓ Migration completed")
 
@@ -450,6 +451,26 @@ class RowingDatabaseInitializer:
             print(f"  ⚠️  Error adding notes column: {e}")
             self.conn.rollback()
 
+    def migrate_events_table_for_event_distance(self):
+        """Add event_distance column to existing events table if it doesn't exist."""
+        print("Checking events table for event_distance column...")
+        cursor = self.conn.cursor()
+        
+        try:
+            # Check if event_distance column exists
+            cursor.execute("PRAGMA table_info(events)")
+            existing_columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'event_distance' not in existing_columns:
+                cursor.execute("ALTER TABLE events ADD COLUMN event_distance TEXT DEFAULT '2k'")
+                print("  ✓ Added event_distance column to events table")
+                self.conn.commit()
+            else:
+                print("  ✓ event_distance column already exists in events table")
+                
+        except Exception as e:
+            print(f"  ⚠️  Error adding event_distance column: {e}")
+            self.conn.rollback()
 
     def clear_existing_data(self):
         """Clear existing schools and teams data."""

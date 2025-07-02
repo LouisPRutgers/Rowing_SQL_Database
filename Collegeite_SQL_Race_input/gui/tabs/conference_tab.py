@@ -357,9 +357,19 @@ class ConferenceTab:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
         
-        # Enable mouse wheel scrolling
+        # Enable mouse wheel scrolling with bounds checking
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            # Get current scroll position as a fraction (0.0 = top, 1.0 = bottom)
+            scroll_top, scroll_bottom = canvas.yview()
+            
+            # Calculate scroll amount
+            scroll_amount = int(-1*(event.delta/120))
+            
+            # Only allow scrolling if within bounds
+            if scroll_amount > 0:  # Scrolling down
+                canvas.yview_scroll(scroll_amount, "units")
+            elif scroll_amount < 0 and scroll_top > 0.0:  # Scrolling up, but only if not at very top
+                canvas.yview_scroll(scroll_amount, "units")
         
         def _on_shift_mousewheel(event):
             canvas.xview_scroll(int(-1*(event.delta/120)), "units")
@@ -367,9 +377,13 @@ class ConferenceTab:
         def _on_ctrl_mousewheel(event):
             canvas.xview_scroll(int(-1*(event.delta/120)), "units")
         
+        # Bind scroll events to canvas only for now
         canvas.bind("<MouseWheel>", _on_mousewheel)
         canvas.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
         canvas.bind("<Control-MouseWheel>", _on_ctrl_mousewheel)
+        
+        # Store scroll functions for use in other widgets
+        self._scroll_functions = (_on_mousewheel, _on_shift_mousewheel, _on_ctrl_mousewheel)
         
         # Store canvas reference for scroll position tracking
         self.current_canvas = canvas
@@ -386,6 +400,11 @@ class ConferenceTab:
         main_container = tk.Frame(scrollable_frame)
         main_container.pack(fill='both', expand=True, padx=5, pady=5)
         
+        # Bind scroll events to main container now that it exists
+        main_container.bind("<MouseWheel>", _on_mousewheel)
+        main_container.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+        main_container.bind("<Control-MouseWheel>", _on_ctrl_mousewheel)
+        
         # FIXED: Define consistent cell dimensions
         self.CELL_WIDTH = 180  # Fixed pixel width for all cells
         self.CELL_HEIGHT = 25  # Fixed pixel height for all cells
@@ -398,7 +417,16 @@ class ConferenceTab:
                               width=self.CELL_WIDTH, height=self.CELL_HEIGHT)
             # NEW: Bind click event to select entire conference
             header_label.bind('<Button-1>', lambda e, conf=conference, c=col: self._select_conference(conf, c))
+            # Bind scroll events to header
+            header_label.bind("<MouseWheel>", _on_mousewheel)
+            header_label.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+            header_label.bind("<Control-MouseWheel>", _on_ctrl_mousewheel)
         
+        # Bind scroll events to header
+            header_label.bind("<MouseWheel>", _on_mousewheel)
+            header_label.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+            header_label.bind("<Control-MouseWheel>", _on_ctrl_mousewheel)
+
         # FIXED: Create school cells with exact positioning
         self.school_cells = {}
         
@@ -408,7 +436,7 @@ class ConferenceTab:
                 if conference in conference_data and row < len(conference_data[conference]):
                     school = conference_data[conference][row]
                 
-                cell = self._create_school_cell(main_container, row + 1, col, conference, school)  # +1 for header
+                cell = self._create_school_cell(main_container, row + 1, col, conference, school, _on_mousewheel, _on_shift_mousewheel, _on_ctrl_mousewheel)  # +1 for header
                 self.school_cells[(row, col)] = {
                     'widget': cell,
                     'conference': conference,
@@ -445,7 +473,7 @@ class ConferenceTab:
         # Store current data
         self.current_conference_data = conference_data
     
-    def _create_school_cell(self, parent, row, col, conference, school):
+    def _create_school_cell(self, parent, row, col, conference, school, on_mousewheel=None, on_shift_mousewheel=None, on_ctrl_mousewheel=None):
         """Create an editable school cell with exact positioning and temporal autocomplete."""
         y_pos = row * self.CELL_HEIGHT
         x_pos = col * self.CELL_WIDTH
@@ -467,6 +495,14 @@ class ConferenceTab:
                 parent.after_idle(lambda: self._on_cell_edit(r, c, conf))
             
             cell.bind('<FocusOut>', on_focus_out)
+        
+        # Bind scroll events to cell if functions are provided
+        if on_mousewheel:
+            cell.bind("<MouseWheel>", on_mousewheel)
+        if on_shift_mousewheel:
+            cell.bind("<Shift-MouseWheel>", on_shift_mousewheel)
+        if on_ctrl_mousewheel:
+            cell.bind("<Control-MouseWheel>", on_ctrl_mousewheel)
         
         return cell
     
